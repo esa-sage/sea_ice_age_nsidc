@@ -51,7 +51,7 @@ def load_data(sid_file, mask, xc, yc):
         X coordinates
     yc : 1D numpy.array
         Y coordinates
-    
+
     Returns
     -------
     u_int : RectBivariateSpline
@@ -121,7 +121,7 @@ def load_init_data(mesh_init_file, zoom_factor, resolution_factor):
 
 def get_input_files(sid_dir, out_dir, restart):
     """ Get input files and initial data
-    
+
     Parameters
     ----------
     sid_dir : str
@@ -150,7 +150,7 @@ def get_input_files(sid_dir, out_dir, restart):
     else:
         data0 = ZarrFile(out_files[-1]).load()
         sid_dates_files = [(d,f) for (d,f) in zip(sid_dates, sid_files) if d >= max(out_dates)]
-        
+
     return sid_dates_files, data0
 
 def move_points(sid_dates_files, data0, mask, xc, yc, x_grid, y_grid, x_grid_age, y_grid_age, m_int, max_conc, max_fractions, file_to_process):
@@ -197,7 +197,7 @@ def move_points(sid_dates_files, data0, mask, xc, yc, x_grid, y_grid, x_grid_age
             cols = np.round(x_grid_age.shape[1] * (x1 - xc.min()) / (xc.max() - xc.min())).astype(int)
             rows = np.round(x_grid_age.shape[0] * (y1 - yc.max()) / (yc.min() - yc.max())).astype(int)
             age[rows, cols] = i + 2 #second YI, third YI, etc...
-        
+
         # Save advected points and age
         if data1:
             dst_date = sid_date + timedelta(1)
@@ -216,8 +216,6 @@ def move_points(sid_dates_files, data0, mask, xc, yc, x_grid, y_grid, x_grid_age
 
 if __name__ == '__main__':
     mesh_init_file = '../sea_ice_age/mesh_arctic_ease_25km_max7.npz'
-    #zoom_factor = 3
-    #resolution_factor = 0.666666667
     zoom_factor = 2
     resolution_factor = 1.0
 
@@ -235,4 +233,4 @@ if __name__ == '__main__':
     #original resolution, seeding resolution, output resolution
     print((xc.max() - xc.min()) / xc.size, (xc.max() - xc.min()) / x_grid.shape[1], (xc.max() - xc.min()) / x_grid_age.shape[1])
 
-    move_points(sid_dates_files, data0, mask, xc, yc, x_grid, y_grid, x_grid_age, y_grid_age, m_int, max_conc, max_fractions, file_to_process)  
+    move_points(sid_dates_files, data0, mask, xc, yc, x_grid, y_grid, x_grid_age, y_grid_age, m_int, max_conc, max_fractions, file_to_process)
