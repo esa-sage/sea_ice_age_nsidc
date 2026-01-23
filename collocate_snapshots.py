@@ -7,7 +7,7 @@ import xarray as xr
 import matplotlib.pyplot as plt
 from scipy.interpolate import RectBivariateSpline, RegularGridInterpolator
 from scipy.ndimage import zoom
-import tqdm
+from tqdm import tqdm
 
 from zarr_file import ZarrFile
 
@@ -27,12 +27,13 @@ def compute_lmsiage_values(data, min_conc=15):
 
 
 class Collocator:
-    def __init__(self, rrdp_dir, rrdp_template_file, lmsiage_file, lmsiage_dir, newdc_dir, output_dir):
+    def __init__(self, rrdp_dir, rrdp_template_file, lmsiage_file, lmsiage_dir, newdc_dir, nsidc_dir, output_dir):
         self.rrdp_dir = rrdp_dir
         self.rrdp_template_file = os.path.join(rrdp_dir, os.path.basename(rrdp_template_file))
         self.lmsiage_file = lmsiage_file
         self.lmsiage_dir = lmsiage_dir
         self.newdc_dir = newdc_dir
+        self.nsidc_dir = nsidc_dir
         self.output_dir = output_dir
 
     def get_rrdp_dates(self):
@@ -46,6 +47,11 @@ class Collocator:
         lmsiage_files = sorted(glob.glob(f'{self.lmsiage_dir}/*/grid_*.zip'))
         lmsiage_dates = [datetime.strptime(f.split('_')[-1], '%Y%m%d.zip') for f in lmsiage_files]
         return lmsiage_dates
+    
+    def get_nsidc_files(self):
+        """ Get available NSIDC files and years from files in the NSIDC directory """
+        self.nsidc_files = sorted(glob.glob(f'{self.nsidc_dir}/iceage_nh_12.5km_*_v4.1.nc'))
+        self.nsidc_years = [int(os.path.basename(f).split('_')[3][:4]) for f in self.nsidc_files]
 
     def read_template_file(self):
         """ Read RRDP template file to get destination grid """
@@ -100,6 +106,29 @@ class Collocator:
         ice_type_dst[self.landmask_ldst.data == 1] = -2
         return ice_type_dst
 
+    def get_nsidc_sia(self, date):
+        ncidc_file = self.nsidc_files[self.nsidc_years.index(date.year)]
+        if not hasattr(self, 'nsidc_file') or self.nsidc_file != ncidc_file:
+            print(f'Loading NSIDC SIAge file: {ncidc_file}')
+            with xr.open_dataset(ncidc_file) as ds:
+                self.ds_x = ds.x.values
+                self.ds_y = ds.y.values
+                self.ds_sia = ds.age_of_sea_ice.values # 20 - land mask, 21 - no data
+            self.nsidc_file = ncidc_file
+        week_index = min((date - datetime(date.year, 1, 1)).days // 7, self.ds_sia.shape[0] - 1)
+        rgi = RegularGridInterpolator((self.ds_y[::-1], self.ds_x), self.ds_sia[week_index], method='nearest', bounds_error=False, fill_value=0)
+        nsidc_dst = rgi(self.dst_grids).reshape(self.dst_y.size, self.dst_x.size)
+        
+        ice_type_dst = np.zeros(nsidc_dst.shape, dtype=np.int8)
+        ice_type_dst[nsidc_dst == 1] = 2
+        ice_type_dst[nsidc_dst == 2] = 3
+        ice_type_dst[nsidc_dst >= 3] = 4
+        ice_type_dst[nsidc_dst == 21] = -1
+        ice_type_dst[self.mask_dst.data != 1] = -1
+        ice_type_dst[nsidc_dst == 20] = -2
+        ice_type_dst[self.landmask_ldst.data == 1] = -2
+        return ice_type_dst
+
     def __call__(self, date):
         """ Collocate LM-SIAge and NewDC data for a given date and save to netCDF file """
         lmsiage_file = date.strftime(f'{self.lmsiage_dir}/%Y/grid_%Y%m%d.zip')
@@ -110,12 +139,14 @@ class Collocator:
 
         lm_fyi_conc, lm_syi_conc, lm_myi_conc, lm_ice_type = self.get_lmsiage_data(lmsiage_file)
         newdc_ice_type = self.get_newdc_data(newdc_file)
+        nsidc_sia = self.get_nsidc_sia(date)
 
         lm_fyi_conc_out = np.round(lm_fyi_conc).astype(np.int8)[None]
         lm_syi_conc_out = np.round(lm_syi_conc).astype(np.int8)[None]
         lm_myi_conc_out = np.round(lm_myi_conc).astype(np.int8)[None]
         lm_ice_type_out = lm_ice_type.astype(np.int8)[None]
         newdc_ice_type_out = newdc_ice_type.astype(np.int8)[None]
+        nsidc_ice_type_out = nsidc_sia.astype(np.int8)[None]
 
         # Create xarray dataset with the data variables
         common_ice_type_attrs = dict(
@@ -128,7 +159,8 @@ class Collocator:
                 'lm_syi': (['time', 'y', 'x'], lm_syi_conc_out, {'_FillValue': np.int8(-1), 'long_name': 'LM-SIAge Second Year Ice Concentration', 'units': '%'}),
                 'lm_myi': (['time', 'y', 'x'], lm_myi_conc_out, {'_FillValue': np.int8(-1), 'long_name': 'LM-SIAge Multi Year Ice Concentration', 'units': '%'}),
                 'lm_ice_type': (['time', 'y', 'x'], lm_ice_type_out, {'_FillValue': np.int8(-1), 'long_name': 'LM-SIAge dominant ice type', **common_ice_type_attrs}),
-                'newdc_ice_type': (['time', 'y', 'x'], newdc_ice_type_out, {'_FillValue': np.int8(-1), 'long_name': 'NewDC dominant ice type', **common_ice_type_attrs})
+                'newdc_ice_type': (['time', 'y', 'x'], newdc_ice_type_out, {'_FillValue': np.int8(-1), 'long_name': 'NewDC dominant ice type', **common_ice_type_attrs}),
+                'nsidc_ice_type': (['time', 'y', 'x'], nsidc_ice_type_out, {'_FillValue': np.int8(-1), 'long_name': 'NSIDC dominant ice type', **common_ice_type_attrs})
             },
             coords={
                 'y': self.dst_y,
@@ -141,6 +173,7 @@ class Collocator:
         ds.to_netcdf(f'{out_dir}/lagrangian_{date.strftime("%Y%m%d")}.nc')
 
 
+
 if __name__ == '__main__':
     rrdp_dir = '../SAGE_RRDP/s_rrdp_jan21/'
     rrdp_template_file = '20240223_N.nc'
@@ -148,12 +181,14 @@ if __name__ == '__main__':
     lmsiage_dir = 'grid'
     newdc_dir = 'outputs'
     output_dir = './collocated/'
+    nsidc_dir = '../NSIDC_iceage/'
 
-    collocator = Collocator(rrdp_dir=rrdp_dir, rrdp_template_file=rrdp_template_file, lmsiage_file=lmsiage_file, lmsiage_dir=lmsiage_dir, newdc_dir=newdc_dir, output_dir=output_dir)
-    collocator.read_template_file()
-    collocator.resample_lmsiage_masks()
-    lmsiage_dates = collocator.get_lmsiage_dates()
-    rrdp_dates = collocator.get_rrdp_dates()
+    self = Collocator(rrdp_dir=rrdp_dir, rrdp_template_file=rrdp_template_file, lmsiage_file=lmsiage_file, lmsiage_dir=lmsiage_dir, newdc_dir=newdc_dir, nsidc_dir=nsidc_dir, output_dir=output_dir)
+    self.read_template_file()
+    self.resample_lmsiage_masks()
+    self.get_nsidc_files()
+    lmsiage_dates = self.get_lmsiage_dates()
+    rrdp_dates = self.get_rrdp_dates()
     matching_dates = sorted(set(lmsiage_dates).intersection(set(rrdp_dates)))
     for date in tqdm(matching_dates):
-        collocator(date)
+        self(date)
