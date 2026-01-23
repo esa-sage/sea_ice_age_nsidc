@@ -7,16 +7,39 @@ import xarray as xr
 import matplotlib.pyplot as plt
 from scipy.interpolate import RectBivariateSpline, RegularGridInterpolator
 from scipy.ndimage import zoom
+import tqdm
 
 from zarr_file import ZarrFile
 
+
+def compute_lmsiage_values(data, min_conc=15):
+    sic_names = sorted([n for n in data.keys() if 'sic' in n])
+    fyi_conc = data['sic_1yi']
+    fyi_conc[np.isnan(fyi_conc)] = 0
+    syi_conc = data['sic_2yi']
+    syi_conc[np.isnan(syi_conc)] = 0
+    myi_conc = np.nansum([data[n] for n in sic_names if n > 'sic_1yi'], axis=0)
+    ice_type = np.zeros_like(fyi_conc)
+    ice_type[fyi_conc > min_conc] = 2
+    ice_type[myi_conc > min_conc] = 4
+    ice_type[syi_conc > myi_conc] = 3
+    return fyi_conc, syi_conc, myi_conc, ice_type
+
+
 class Collocator:
-    def __init__(self, rrdp_template_file, lmsiage_file, lmsiage_dir, newdc_dir, output_dir):
-        self.rrdp_template_file = rrdp_template_file
+    def __init__(self, rrdp_dir, rrdp_template_file, lmsiage_file, lmsiage_dir, newdc_dir, output_dir):
+        self.rrdp_dir = rrdp_dir
+        self.rrdp_template_file = os.path.join(rrdp_dir, os.path.basename(rrdp_template_file))
         self.lmsiage_file = lmsiage_file
         self.lmsiage_dir = lmsiage_dir
         self.newdc_dir = newdc_dir
         self.output_dir = output_dir
+
+    def get_rrdp_dates(self):
+        """ Get available RRDP dates from files in the RRDP directory """
+        rrdp_files = sorted(glob.glob(f'{self.rrdp_dir}/*_N.nc'))
+        rrdp_dates = [datetime.strptime(os.path.basename(f).split('_')[0], '%Y%m%d') for f in rrdp_files]
+        return rrdp_dates
 
     def get_lmsiage_dates(self):
         """ Get available LM-SIAge dates from files in the LM-SIAge directory """
@@ -54,20 +77,13 @@ class Collocator:
         names = mf.read_names()
         sic_names = sorted([n for n in names if 'sic' in n])
         data = mf.load(sic_names)
-        fyi_conc = data['sic_1yi']
-        fyi_conc[np.isnan(fyi_conc)] = 0
-        syi_conc = data['sic_2yi']
-        syi_conc[np.isnan(syi_conc)] = 0
-        myi_conc = np.nansum([data[n] for n in sic_names if n > 'sic_1yi'], axis=0)
-        ice_type = np.zeros_like(fyi_conc)
-        ice_type[fyi_conc > 15] = 2
-        ice_type[myi_conc > 15] = 4
-        ice_type[syi_conc > 15] = 3
+        fyi_conc, syi_conc, myi_conc, ice_type = compute_lmsiage_values(data)
         dst = []
         for a in [fyi_conc, syi_conc, myi_conc, ice_type]:
             rgi = RegularGridInterpolator((self.lmsiage_yc, self.lmsiage_xc), a, method='nearest', bounds_error=False, fill_value=0)
             a_dst = rgi(self.dst_grids).reshape(self.dst_y.size, self.dst_x.size)
-            a_dst[(self.landmask_ldst == 1) | (self.mask_dst == 0)] = -1
+            a_dst[self.mask_dst.data != 1] = -1
+            a_dst[self.landmask_ldst.data == 1] = -2
             dst.append(a_dst)
         return dst
 
@@ -80,7 +96,8 @@ class Collocator:
         ice_type[age >= 3] = 4
         rgi = RegularGridInterpolator((self.lmsiage_yc2, self.lmsiage_xc2), ice_type, method='nearest', bounds_error=False, fill_value=0)
         ice_type_dst = rgi(self.dst_grids).reshape(self.dst_y.size, self.dst_x.size)
-        ice_type_dst[self.landmask_ldst == 1] = -1
+        ice_type_dst[self.mask_dst.data != 1] = -1
+        ice_type_dst[self.landmask_ldst.data == 1] = -2
         return ice_type_dst
 
     def __call__(self, date):
@@ -125,15 +142,18 @@ class Collocator:
 
 
 if __name__ == '__main__':
-    rrdp_template_file = '../sage/20240223_N.nc'
-    lmsiage_file = '../sea_ice_age/mesh_arctic_ease_25km_max7.npz'
+    rrdp_dir = '../SAGE_RRDP/s_rrdp_jan21/'
+    rrdp_template_file = '20240223_N.nc'
+    lmsiage_file = '../../sea_ice_age/mesh_arctic_ease_25km_max7.npz'
     lmsiage_dir = 'grid'
     newdc_dir = 'outputs'
     output_dir = './collocated/'
 
-    collocator = Collocator(rrdp_template_file=rrdp_template_file, lmsiage_file=lmsiage_file, lmsiage_dir=lmsiage_dir, newdc_dir=newdc_dir, output_dir=output_dir)
+    collocator = Collocator(rrdp_dir=rrdp_dir, rrdp_template_file=rrdp_template_file, lmsiage_file=lmsiage_file, lmsiage_dir=lmsiage_dir, newdc_dir=newdc_dir, output_dir=output_dir)
     collocator.read_template_file()
     collocator.resample_lmsiage_masks()
     lmsiage_dates = collocator.get_lmsiage_dates()
-    for date in lmsiage_dates:
+    rrdp_dates = collocator.get_rrdp_dates()
+    matching_dates = sorted(set(lmsiage_dates).intersection(set(rrdp_dates)))
+    for date in tqdm(matching_dates):
         collocator(date)
