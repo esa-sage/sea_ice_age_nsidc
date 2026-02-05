@@ -27,8 +27,9 @@ def compute_lmsiage_values(data, min_conc=15):
 
 
 class Collocator:
-    def __init__(self, rrdp_dir, rrdp_template_file, lmsiage_file, lmsiage_dir, newdc_dir, nsidc_dir, output_dir):
+    def __init__(self, rrdp_dir, rrdp_mask, rrdp_template_file, lmsiage_file, lmsiage_dir, newdc_dir, nsidc_dir, output_dir):
         self.rrdp_dir = rrdp_dir
+        self.rrdp_mask = rrdp_mask
         self.rrdp_template_file = os.path.join(rrdp_dir, os.path.basename(rrdp_template_file))
         self.lmsiage_file = lmsiage_file
         self.lmsiage_dir = lmsiage_dir
@@ -38,7 +39,7 @@ class Collocator:
 
     def get_rrdp_dates(self):
         """ Get available RRDP dates from files in the RRDP directory """
-        rrdp_files = sorted(glob.glob(f'{self.rrdp_dir}/*_N.nc'))
+        rrdp_files = sorted(glob.glob(f'{self.rrdp_dir}/{self.rrdp_mask}'))
         rrdp_dates = [datetime.strptime(os.path.basename(f).split('_')[0], '%Y%m%d') for f in rrdp_files]
         return rrdp_dates
 
@@ -139,7 +140,10 @@ class Collocator:
 
         lm_fyi_conc, lm_syi_conc, lm_myi_conc, lm_ice_type = self.get_lmsiage_data(lmsiage_file)
         newdc_ice_type = self.get_newdc_data(newdc_file)
-        nsidc_sia = self.get_nsidc_sia(date)
+        try:
+            nsidc_sia = self.get_nsidc_sia(date)
+        except:
+            nsidc_sia = np.zeros_like(lm_ice_type) - 1
 
         lm_fyi_conc_out = np.round(lm_fyi_conc).astype(np.int8)[None]
         lm_syi_conc_out = np.round(lm_syi_conc).astype(np.int8)[None]
@@ -175,15 +179,16 @@ class Collocator:
 
 
 if __name__ == '__main__':
-    rrdp_dir = '../SAGE_RRDP/s_rrdp_jan21/'
-    rrdp_template_file = '20240223_N.nc'
+    rrdp_dir = '../SAGE_RRDP/s_rrdp_v01_fv01/'
+    rrdp_mask = '*_N_*.nc'
+    rrdp_template_file = '20120102_N_v01_fv01.nc'
     lmsiage_file = '../../sea_ice_age/mesh_arctic_ease_25km_max7.npz'
     lmsiage_dir = 'grid'
     newdc_dir = 'outputs'
     output_dir = './collocated/'
     nsidc_dir = '../NSIDC_iceage/'
 
-    self = Collocator(rrdp_dir=rrdp_dir, rrdp_template_file=rrdp_template_file, lmsiage_file=lmsiage_file, lmsiage_dir=lmsiage_dir, newdc_dir=newdc_dir, nsidc_dir=nsidc_dir, output_dir=output_dir)
+    self = Collocator(rrdp_dir=rrdp_dir, rrdp_mask=rrdp_mask, rrdp_template_file=rrdp_template_file, lmsiage_file=lmsiage_file, lmsiage_dir=lmsiage_dir, newdc_dir=newdc_dir, nsidc_dir=nsidc_dir, output_dir=output_dir)
     self.read_template_file()
     self.resample_lmsiage_masks()
     self.get_nsidc_files()
