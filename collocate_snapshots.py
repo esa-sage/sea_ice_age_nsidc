@@ -157,14 +157,15 @@ class Collocator:
             flag_values = [np.byte(1), np.byte(2), np.byte(3), np.byte(4)],
             flag_meanings = "first_year_ice second_year_ice multi_year_ice ice_type"
         )
+
+        out_dir = date.strftime(f'{self.output_dir}/%Y')
+        os.makedirs(out_dir, exist_ok=True)
+
         ds = xr.Dataset(
             {
-                'lm_fyi': (['time', 'y', 'x'], lm_fyi_conc_out, {'_FillValue': np.int8(-1), 'long_name': 'LM-SIAge First Year Ice Concentration', 'units': '%'}),
-                'lm_syi': (['time', 'y', 'x'], lm_syi_conc_out, {'_FillValue': np.int8(-1), 'long_name': 'LM-SIAge Second Year Ice Concentration', 'units': '%'}),
-                'lm_myi': (['time', 'y', 'x'], lm_myi_conc_out, {'_FillValue': np.int8(-1), 'long_name': 'LM-SIAge Multi Year Ice Concentration', 'units': '%'}),
-                'lm_ice_type': (['time', 'y', 'x'], lm_ice_type_out, {'_FillValue': np.int8(-1), 'long_name': 'LM-SIAge dominant ice type', **common_ice_type_attrs}),
-                'newdc_ice_type': (['time', 'y', 'x'], newdc_ice_type_out, {'_FillValue': np.int8(-1), 'long_name': 'NewDC dominant ice type', **common_ice_type_attrs}),
-                'nsidc_ice_type': (['time', 'y', 'x'], nsidc_ice_type_out, {'_FillValue': np.int8(-1), 'long_name': 'NSIDC dominant ice type', **common_ice_type_attrs})
+                'lm_fyi': (['time', 'y', 'x'], lm_fyi_conc_out, {'long_name': 'LM-SIAge First Year Ice Concentration', 'units': '%'}),
+                'lm_myi': (['time', 'y', 'x'], lm_myi_conc_out, {'long_name': 'LM-SIAge Multi Year Ice Concentration', 'units': '%'}),
+                'lm_ice_type': (['time', 'y', 'x'], lm_ice_type_out, {'long_name': 'LM-SIAge dominant ice type', **common_ice_type_attrs}),
             },
             coords={
                 'y': self.dst_y,
@@ -172,10 +173,26 @@ class Collocator:
                 'time': np.array([np.datetime64(date)])
             }
         )
-        out_dir = date.strftime(f'{self.output_dir}/%Y')
-        os.makedirs(out_dir, exist_ok=True)
-        ds.to_netcdf(f'{out_dir}/lagrangian_{date.strftime("%Y%m%d")}.nc')
+        for name in ds.data_vars:
+            ds[name].encoding['_FillValue'] = np.int8(-1)
+            ds[name].encoding['zlib'] = True
+        ds.to_netcdf(f'{out_dir}/lm_{date.strftime("%Y%m%d")}.nc')
 
+        ds = xr.Dataset(
+            {
+                'newdc_ice_type': (['time', 'y', 'x'], newdc_ice_type_out, {'long_name': 'NewDC dominant ice type', **common_ice_type_attrs}),
+                'nsidc_ice_type': (['time', 'y', 'x'], nsidc_ice_type_out, {'long_name': 'NSIDC dominant ice type', **common_ice_type_attrs})
+            },
+            coords={
+                'y': self.dst_y,
+                'x': self.dst_x,
+                'time': np.array([np.datetime64(date)])
+            }
+        )
+        for name in ds.data_vars:
+            ds[name].encoding['_FillValue'] = np.int8(-1)
+            ds[name].encoding['zlib'] = True
+        ds.to_netcdf(f'{out_dir}/nsidc_{date.strftime("%Y%m%d")}.nc')
 
 
 if __name__ == '__main__':
