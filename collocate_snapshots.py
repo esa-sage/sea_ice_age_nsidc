@@ -196,9 +196,9 @@ class Collocator:
 
 
 if __name__ == '__main__':
-    rrdp_dir = '../SAGE_RRDP/s_rrdp_v01_fv01/'
+    rrdp_dir = '../SAGE_RRDP/s_rrdp_v01_fv02/'
     rrdp_mask = '*_N_*.nc'
-    rrdp_template_file = '20120102_N_v01_fv01.nc'
+    rrdp_template_file = '20120102_N_v01_fv02.nc'
     lmsiage_file = '../../sea_ice_age/mesh_arctic_ease_25km_max7.npz'
     lmsiage_dir = 'grid'
     newdc_dir = 'outputs'
