@@ -146,7 +146,6 @@ class Collocator:
             nsidc_sia = np.zeros_like(lm_ice_type) - 1
 
         lm_fyi_conc_out = np.round(lm_fyi_conc).astype(np.int8)[None]
-        lm_syi_conc_out = np.round(lm_syi_conc).astype(np.int8)[None]
         lm_myi_conc_out = np.round(lm_myi_conc).astype(np.int8)[None]
         lm_ice_type_out = lm_ice_type.astype(np.int8)[None]
         newdc_ice_type_out = newdc_ice_type.astype(np.int8)[None]
@@ -165,21 +164,6 @@ class Collocator:
             {
                 'lm_fyi': (['time', 'y', 'x'], lm_fyi_conc_out, {'long_name': 'LM-SIAge First Year Ice Concentration', 'units': '%'}),
                 'lm_myi': (['time', 'y', 'x'], lm_myi_conc_out, {'long_name': 'LM-SIAge Multi Year Ice Concentration', 'units': '%'}),
-                'lm_ice_type': (['time', 'y', 'x'], lm_ice_type_out, {'long_name': 'LM-SIAge dominant ice type', **common_ice_type_attrs}),
-            },
-            coords={
-                'y': self.dst_y,
-                'x': self.dst_x,
-                'time': np.array([np.datetime64(date)])
-            }
-        )
-        for name in ds.data_vars:
-            ds[name].encoding['_FillValue'] = np.int8(-1)
-            ds[name].encoding['zlib'] = True
-        ds.to_netcdf(f'{out_dir}/lm_{date.strftime("%Y%m%d")}.nc')
-
-        ds = xr.Dataset(
-            {
                 'newdc_ice_type': (['time', 'y', 'x'], newdc_ice_type_out, {'long_name': 'NewDC dominant ice type', **common_ice_type_attrs}),
                 'nsidc_ice_type': (['time', 'y', 'x'], nsidc_ice_type_out, {'long_name': 'NSIDC dominant ice type', **common_ice_type_attrs})
             },
@@ -192,7 +176,7 @@ class Collocator:
         for name in ds.data_vars:
             ds[name].encoding['_FillValue'] = np.int8(-1)
             ds[name].encoding['zlib'] = True
-        ds.to_netcdf(f'{out_dir}/nsidc_{date.strftime("%Y%m%d")}.nc')
+        ds.to_netcdf(f'{out_dir}/lagrangian_{date.strftime("%Y%m%d")}.nc')
 
 
 if __name__ == '__main__':
